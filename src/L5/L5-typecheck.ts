@@ -1,11 +1,11 @@
 // L5-typecheck
 // ========================================================
-import { equals, map, zipWith } from 'ramda';
+import { equals, F, map, zipWith } from 'ramda';
 import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isNumExp,
          isPrimOp, isProcExp, isProgram, isStrExp, isVarRef, parseL5Exp, unparse,
          AppExp, BoolExp, DefineExp, Exp, IfExp, LetrecExp, LetExp, NumExp,
-         Parsed, PrimOp, ProcExp, Program, StrExp } from "./L5-ast";
-import { applyTEnv, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
+         Parsed, PrimOp, ProcExp, Program, StrExp, parseL5Program} from "./L5-ast";
+import { applyTEnv, combineEnvs, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
 import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeVoidTExp,
          parseTE, unparseTExp,
          BoolTExp, NumTExp, StrTExp, TExp, VoidTExp } from "./TExp";
@@ -13,6 +13,7 @@ import { isEmpty, allT, first, rest, NonEmptyList, List, isNonEmptyList } from '
 import { Result, makeFailure, bind, makeOk, zipWithResult } from '../shared/result';
 import { parse as p } from "../shared/parser";
 import { format } from '../shared/format';
+import { isDataView } from 'util/types';
 
 // Purpose: Check that type expressions are equivalent
 // as part of a fully-annotated type check process of exp.
@@ -34,6 +35,11 @@ const checkEqualType = (te1: TExp, te2: TExp, exp: Exp): Result<true> =>
 export const L5typeof = (concreteExp: string): Result<string> =>
     bind(p(concreteExp), (x) =>
         bind(parseL5Exp(x), (e: Exp) => 
+            bind(typeofExp(e, makeEmptyTEnv()), unparseTExp)));
+
+export const L5programTypeof = (concreteExp: string): Result<string> =>
+    bind(p(concreteExp), (x) =>
+        bind(parseL5Program(x), (e: Program) => 
             bind(typeofExp(e, makeEmptyTEnv()), unparseTExp)));
 
 // Purpose: Compute the type of an expression
@@ -205,20 +211,49 @@ export const typeofLetrec = (exp: LetrecExp, tenv: TEnv): Result<TExp> => {
     return bind(constraints, _ => typeofExps(exp.body, tenvBody));
 };
 
+
+const typeOfSequence = (seq: Exp[], env: TEnv): Result<TExp> => {
+    return isNonEmptyList<Exp>(seq) ? typeOfFirst(first(seq), rest(seq), env) : 
+    makeFailure("Empty sequence")
+}
+
+const typeOfFirst = (first: Exp, rest: Exp[], env: TEnv) : Result<TExp> => {
+    return isDefineExp(first) ? typeofDefineExps(first, rest, env) : 
+    isEmpty(rest) ? typeofExp(first, env) :
+    bind(typeofExp(first, env), _ => typeOfSequence(rest, env))
+}
+
+
+export const typeofDefineExps = (exp: DefineExp, rest: Exp[], tenv: TEnv): Result<TExp> => {
+    const valTE = typeofExp(exp.val, tenv)
+    const constraint = bind(valTE, valTE => checkEqualType(exp.var.texp, valTE, exp))
+    
+    // combine environments
+    const newEnv = makeExtendTEnv([exp.var.var],[exp.var.texp], tenv)
+    return bind(constraint, _ =>
+         bind(combineEnvs(tenv, newEnv), (env: TEnv) =>
+             typeOfSequence(rest, env)))
+};
+
+
 // Typecheck a full program
 // TODO: Thread the TEnv (as in L1)
 
 // Purpose: compute the type of a define
 // Typing rule:
 //   (define (var : texp) val)
-// TODO - write the true definition
-export const typeofDefine = (exp: DefineExp, tenv: TEnv): Result<VoidTExp> => {
-    // return Error("TODO");
-    return makeOk(makeVoidTExp());
-};
+// If type<var>(Tenv) = type<var>
+//      type<val> = t
+//      env-body = extend-tenv(var = t; tenv)
+// then VoidTExp
+const typeofDefine = (exp: DefineExp, tenv: TEnv): Result<VoidTExp> => {
+    const valTE = typeofExp(exp.val, tenv)
+    const constraint = bind(valTE, valTE => checkEqualType(exp.var.texp, valTE, exp))
+    return bind(constraint, _ => makeOk(makeVoidTExp()))
+}
 
 // Purpose: compute the type of a program
 // Typing rule:
 // TODO - write the true definition
 export const typeofProgram = (exp: Program, tenv: TEnv): Result<TExp> =>
-    makeFailure("TODO");
+    typeOfSequence(exp.exps, tenv)

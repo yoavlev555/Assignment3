@@ -132,6 +132,20 @@ export const atomicTExpName = (te: AtomicTExp): string => te.tag;
 export const eqAtomicTExp = (te1: AtomicTExp, te2: AtomicTExp): boolean =>
     atomicTExpName(te1) === atomicTExpName(te2);
 
+export const isContainedTvar = (varRef: string, te: TExp): boolean => {
+    if (isTVar(te)) {
+        const contents = tvarContents(te);
+        return te.var === varRef || (isTVar(contents) && isContainedTvar(varRef, contents));
+    } else if (isProcTExp(te)) {
+        return te.paramTEs.some((paramTE) => isContainedTvar(varRef, paramTE)) ||
+               isContainedTvar(varRef, te.returnTE);
+    } else if (isNonEmptyTupleTExp(te)) {
+        return te.TEs.some((tupleTE) => isContainedTvar(varRef, tupleTE));
+    }
+    return false;
+};
+
+
 
 // ========================================================
 // TExp parser
