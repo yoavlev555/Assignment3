@@ -2,7 +2,7 @@ import * as assert from "assert";
 import { L5programTypeof, L5typeof } from "../src/L5/L5-typecheck";
 
 // Helper function to unwrap the Result from L5typeof
-function getTypeofValue(exp: string): string | Error {
+function getTypeofValue(exp: string): (string | Error) {
     const result = L5typeof(exp);
     if (result.tag === 'Ok') {
         return result.value;
@@ -12,7 +12,7 @@ function getTypeofValue(exp: string): string | Error {
     }
 }
 
-function getTypeofProgram(exp: string): string | Error {
+function getTypeofProgram(exp: string): (string | Error) {
     const result = L5programTypeof(exp);
     if (result.tag === 'Ok') {
         return result.value;

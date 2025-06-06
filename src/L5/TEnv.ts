@@ -12,8 +12,9 @@
 ;; * <extended-tenv> ::= (tenv (symbol+) (type-exp+) enclosing-tenv) // env(vars:List(Symbol), tes:List(Type-exp), enclosing-tenv: TEnv)
 */
 
-import { TExp } from './TExp';
-import { Result, makeOk, makeFailure } from '../shared/result';
+import { TExp, isContainedTvar} from './TExp';
+import { Result, makeOk, makeFailure, isFailure, mapResult } from '../shared/result';
+import { difference, intersection } from 'ramda';
 
 export type TEnv = EmptyTEnv | ExtendTEnv;
 
@@ -33,3 +34,34 @@ export const applyTEnv = (tenv: TEnv, v: string): Result<TExp> =>
 export const applyExtendTEnv = (texps: TExp[], tenv: TEnv, v: string, pos: number): Result<TExp> =>
     (pos === -1) ? applyTEnv(tenv, v) :
     makeOk(texps[pos]);
+    
+
+export const combineEnvs = (firstEnv: TEnv, secondEnv: TEnv): Result<TEnv> =>{
+    return isEmptyTEnv(firstEnv) ? makeOk(secondEnv):
+    isEmptyTEnv(secondEnv) ? makeOk(firstEnv):
+    makeNewEnv(firstEnv,secondEnv)
+}
+
+const makeNewEnv = (firstEnv: ExtendTEnv, secondEnv: ExtendTEnv): Result<TEnv> => {
+    const secondEnvVars = secondEnv.vars;
+    const secondEnvTexps = secondEnv.texps;
+
+    const selfDefined = secondEnvVars.some((variable, index) => 
+        isContainedTvar(variable, secondEnvTexps[index])
+    );
+
+    if (selfDefined){
+        return makeFailure("Variable is defined recursivly")
+    }
+
+    const isNotInFirst = (variable: string): boolean => {
+        const val = applyTEnv(firstEnv, variable);
+        return isFailure(val);
+    };
+
+    const diffVars = secondEnvVars.filter(isNotInFirst);
+    const diffTexps = diffVars.map((v) => secondEnvTexps[secondEnvVars.indexOf(v)]);
+
+    // Combine the filtered variables and types with the first environment
+    return makeOk(makeExtendTEnv(diffVars, diffTexps, firstEnv));
+};
