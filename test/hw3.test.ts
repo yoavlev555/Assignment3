@@ -176,6 +176,12 @@ describe("L5 Type Checker", () => {
 
 
 
+        
+    });
 
+    describe("Dummy test", () => {
+        it("bliat", () => {
+            assert.deepEqual(getTypeofValue("(number? 5)"), "boolean");
+        });
     });
 });
