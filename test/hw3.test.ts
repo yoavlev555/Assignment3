@@ -172,16 +172,6 @@ describe("L5 Type Checker", () => {
 
         it("should correctly type a quoted number and literal with shorthand notation", () => {
             assert.deepEqual(getTypeofProgram("(L5 '(4 . abc))"), "(Pair number literal)");
-        });
-
-
-
-        
-    });
-
-    describe("Dummy test", () => {
-        it("bliat", () => {
-            assert.deepEqual(getTypeofValue("(number? 5)"), "boolean");
-        });
+        });      
     });
 });

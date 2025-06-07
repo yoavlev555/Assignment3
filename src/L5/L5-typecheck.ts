@@ -8,7 +8,9 @@ import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isNum
 import { applyTEnv, combineEnvs, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
 import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeVoidTExp,
          parseTE, unparseTExp,
-         BoolTExp, NumTExp, StrTExp, TExp, VoidTExp } from "./TExp";
+         BoolTExp, NumTExp, StrTExp, TExp, VoidTExp, 
+         isPairTExp,
+         makePairTExp} from "./TExp";
 import { isEmpty, allT, first, rest, NonEmptyList, List, isNonEmptyList } from '../shared/list';
 import { Result, makeFailure, bind, makeOk, zipWithResult } from '../shared/result';
 import { parse as p } from "../shared/parser";
@@ -110,7 +112,7 @@ export const typeofPrim = (p: PrimOp): Result<TExp> =>
     (p.op === 'newline') ? parseTE('(Empty -> void)') :
     (p.op === 'cons') ? parseTE('(T1 * T2 -> (Pair T1 T2))') :
     (p.op === 'car') ? parseTE('((Pair T1 T2) -> T1)') :
-    (p.op === 'cdr') ? parseTE('((Pair T1 T2)) -> T2') :
+    (p.op === 'cdr') ? parseTE('((Pair T1 T2) -> T2)') :
     makeFailure("Operator not supported")
     
 // Purpose: compute the type of an if-exp
@@ -152,21 +154,68 @@ export const typeofProc = (proc: ProcExp, tenv: TEnv): Result<TExp> => {
 //      type<randn>(tenv) = tn
 // then type<(rator rand1...randn)>(tenv) = t
 // We also check the correct number of arguments is passed.
-export const typeofApp = (app: AppExp, tenv: TEnv): Result<TExp> =>
-    bind(typeofExp(app.rator, tenv), (ratorTE: TExp) => {
-        if (! isProcTExp(ratorTE)) {
+export const typeofApp = (app: AppExp, tenv: TEnv): Result<TExp> => {
+    if (isPrimOp(app.rator)) {
+        // Handle (car pair)
+        if (app.rator.op === "car") {
+            if (app.rands.length !== 1)
+                return makeFailure("cdr expects exactly 1 argument");
+            return bind(typeofExp(app.rands[0], tenv), (pair : TExp) => {
+                if (isPairTExp(pair)) {
+                    return makeOk(pair.first);
+                } else {
+                    return makeFailure("cdr expected a pair")
+                }
+            });
+        }
+
+        if (app.rator.op === "cdr") {
+            if (app.rands.length !== 1)
+                return makeFailure("cdr expects exactly 1 argument");
+            return bind(typeofExp(app.rands[0], tenv), (pair : TExp) => {
+                if (isPairTExp(pair)) {
+                    return makeOk(pair.second);
+                } else {
+                    return makeFailure("cdr expected a pair")
+                }
+            });
+        }
+
+        if (app.rator.op === "cons") {
+            if (app.rands.length !== 2) {
+                return makeFailure("cons expects exactly 2 arguments");
+            }
+            return bind(typeofExp(app.rands[0], tenv), (t1: TExp) =>
+                bind(typeofExp(app.rands[1], tenv), (t2: TExp) =>
+                    makeOk(makePairTExp(t1, t2))
+                )
+            );
+        }
+    }
+
+    // Existing function application logic
+    return bind(typeofExp(app.rator, tenv), (ratorTE: TExp) => {
+        if (!isProcTExp(ratorTE)) {
             return bind(unparseTExp(ratorTE), (rator: string) =>
-                        bind(unparse(app), (exp: string) =>
-                            makeFailure<TExp>(`Application of non-procedure: ${rator} in ${exp}`)));
+                bind(unparse(app), (exp: string) =>
+                    makeFailure<TExp>(`Application of non-procedure: ${rator} in ${exp}`)));
         }
+
         if (app.rands.length !== ratorTE.paramTEs.length) {
-            return bind(unparse(app), (exp: string) => makeFailure<TExp>(`Wrong parameter numbers passed to proc: ${exp}`));
+            return bind(unparse(app), (exp: string) =>
+                makeFailure<TExp>(`Wrong parameter numbers passed to proc: ${exp}`));
         }
-        const constraints = zipWithResult((rand, trand) => bind(typeofExp(rand, tenv), (typeOfRand: TExp) => 
-                                                                checkEqualType(typeOfRand, trand, app)),
-                                          app.rands, ratorTE.paramTEs);
-        return bind(constraints, _ => makeOk(ratorTE.returnTE));
+
+        const constraints = zipWithResult((rand, trand) =>
+            bind(typeofExp(rand, tenv), (typeOfRand: TExp) =>
+                checkEqualType(typeOfRand, trand, app)),
+            app.rands, ratorTE.paramTEs);
+
+        return bind(constraints, _ =>
+            makeOk(ratorTE.returnTE));
     });
+};
+
 
 // Purpose: compute the type of a let-exp
 // Typing rule:
