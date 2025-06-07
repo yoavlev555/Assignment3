@@ -4,18 +4,23 @@ import { equals, F, map, zipWith } from 'ramda';
 import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isNumExp,
          isPrimOp, isProcExp, isProgram, isStrExp, isVarRef, parseL5Exp, unparse,
          AppExp, BoolExp, DefineExp, Exp, IfExp, LetrecExp, LetExp, NumExp,
-         Parsed, PrimOp, ProcExp, Program, StrExp, parseL5Program} from "./L5-ast";
+         Parsed, PrimOp, ProcExp, Program, StrExp, parseL5Program,
+         isLitExp,
+         LitExp} from "./L5-ast";
 import { applyTEnv, combineEnvs, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
 import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeVoidTExp,
          parseTE, unparseTExp,
          BoolTExp, NumTExp, StrTExp, TExp, VoidTExp, 
          isPairTExp,
-         makePairTExp} from "./TExp";
+         makePairTExp,
+         makeTVar,
+         makeEmptyTupleTExp} from "./TExp";
 import { isEmpty, allT, first, rest, NonEmptyList, List, isNonEmptyList } from '../shared/list';
 import { Result, makeFailure, bind, makeOk, zipWithResult } from '../shared/result';
 import { parse as p } from "../shared/parser";
 import { format } from '../shared/format';
 import { isDataView } from 'util/types';
+import { CompoundSExp, isCompoundSExp, isEmptySExp, isSymbolSExp, SExpValue } from './L5-value';
 
 // Purpose: Check that type expressions are equivalent
 // as part of a fully-annotated type check process of exp.
@@ -60,7 +65,7 @@ export const typeofExp = (exp: Parsed, tenv: TEnv): Result<TExp> =>
     isLetrecExp(exp) ? typeofLetrec(exp, tenv) :
     isDefineExp(exp) ? typeofDefine(exp, tenv) :
     isProgram(exp) ? typeofProgram(exp, tenv) :
-    // TODO: isSetExp(exp) isLitExp(exp)
+    isLitExp(exp) ? typeofLit(exp) :
     makeFailure(`Unknown type: ${format(exp)}`);
 
 // Purpose: Compute the type of a sequence of expressions
@@ -73,6 +78,25 @@ export const typeofExps = (exps: List<Exp>, tenv: TEnv): Result<TExp> =>
     makeFailure(`Unexpected empty list of expressions`);
 
 
+const typeofSExpLiteral = (val: SExpValue): Result<TExp> =>
+    typeof val === "number" ? makeOk(makeNumTExp()) :
+    typeof val === "boolean" ? makeOk(makeBoolTExp()) :
+    typeof val === "string" ? makeOk(makeStrTExp()) :
+    isSymbolSExp(val) ? makeOk(makeTVar("literal")) :
+    isEmptySExp(val) ? makeOk(makeEmptyTupleTExp()) :
+    isCompoundSExp(val) ? typeofCompoundSExp(val) :
+    makeFailure(`Unknown SExp value: ${format(val)}`);
+
+    
+const typeofCompoundSExp = (val: CompoundSExp): Result<TExp> =>
+    bind(typeofSExpLiteral(val.val1), (leftTE: TExp) =>
+    bind(typeofSExpLiteral(val.val2), (rightTE: TExp) =>
+        makeOk(makePairTExp(leftTE, rightTE))));
+    
+const typeofLit = (exp: LitExp): Result<TExp> =>
+    isCompoundSExp(exp.val) ? typeofCompoundSExp(exp.val) :
+    makeOk(makeTVar("literal"));       
+``
 // a number literal has type num-te
 export const typeofNum = (n: NumExp): NumTExp => makeNumTExp();
 
